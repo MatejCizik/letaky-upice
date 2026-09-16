@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>První nastavení · Letáky Úpice</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <main class="setup-page">
+    <section class="setup-card">
+      <div class="brand-mark">Ú</div>
+      <span class="eyebrow">JEDNORÁZOVÉ NASTAVENÍ</span>
+      <h1>Vytvoření administrátora</h1>
+      <p>Tato stránka funguje pouze tehdy, pokud v databázi ještě není žádný účet. Po vytvoření prvního administrátora server další použití automaticky odmítne.</p>
+      <form id="setupForm">
+        <label>Uživatelské jméno
+          <input id="setupUsername" value="admin" required minlength="3" maxlength="32" autocomplete="username" />
+        </label>
+        <label>Zobrazované jméno
+          <input id="setupDisplayName" value="Administrátor" required maxlength="80" autocomplete="name" />
+        </label>
+        <label>Heslo
+          <input id="setupPassword" type="password" placeholder="Alespoň 6 znaků" required minlength="6" autocomplete="new-password" />
+        </label>
+        <button id="setupBtn" class="btn btn-primary btn-wide" type="submit">Vytvořit administrátora</button>
+      </form>
+      <div id="setupResult" class="setup-result hidden"></div>
+    </section>
+  </main>
+
+  <script type="module">
+    import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+    import { CONFIG } from './config.js';
+
+    const form = document.getElementById('setupForm');
+    const result = document.getElementById('setupResult');
+    const btn = document.getElementById('setupBtn');
+    const supabase = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
+    });
+
+    const show = (message, type) => {
+      result.textContent = message;
+      result.className = `setup-result ${type}`;
+    };
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      btn.disabled = true;
+      btn.textContent = 'Vytvářím…';
+      const username = document.getElementById('setupUsername').value.trim().toLowerCase();
+      const displayName = document.getElementById('setupDisplayName').value.trim();
+      const password = document.getElementById('setupPassword').value;
+
+      const { error } = await supabase.rpc('app_bootstrap_admin', {
+        p_username: username,
+        p_display_name: displayName,
+        p_password: password
+      });
+
+      if (error) {
+        const msg = String(error.message || '');
+        if (msg.includes('SETUP_ALREADY_COMPLETED') || msg.toLowerCase().includes('permission denied')) show('První účet už byl vytvořen. Přihlaste se přes hlavní stránku.', 'error');
+        else if (msg.includes('INVALID_USERNAME')) show('Uživatelské jméno může obsahovat jen a–z, 0–9, tečku, pomlčku a podtržítko.', 'error');
+        else if (msg.includes('PASSWORD_TOO_SHORT')) show('Heslo musí mít alespoň 6 znaků.', 'error');
+        else show(`Nastavení se nezdařilo: ${error.message}`, 'error');
+        btn.disabled = false;
+        btn.textContent = 'Vytvořit administrátora';
+        return;
+      }
+
+      const login = await supabase.rpc('app_login', { p_username: username, p_password: password });
+      if (!login.error && login.data?.[0]?.session_token) {
+        localStorage.setItem('letaky_upice_session', login.data[0].session_token);
+        show('Administrátor byl vytvořen. Přesměrovávám do aplikace…', 'success');
+        setTimeout(() => location.href = './', 700);
+      } else {
+        show('Administrátor byl vytvořen. Nyní se přihlaste na hlavní stránce.', 'success');
+        btn.disabled = false;
+        btn.textContent = 'Hotovo';
+      }
+    });
+  </script>
+</body>
+</html>

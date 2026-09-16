@@ -1,0 +1,12 @@
+Letáky Úpice V6.1
+
+Novinky:
+- Admin dashboard: Dnes hotovo
+- Denní report s výběrem data
+- Přehled kolik lidí v daný den dokončilo ulice
+- U každého uživatele počet dokončených ulic
+- Přesný seznam ulic a čas jejich dokončení
+- Denní statistika se počítá z trvalého Logu
+- Stejná ulice se stejnému uživateli v jednom dni započítá pouze jednou
+
+Databázová funkce pro denní report je již nasazená v připojeném Supabase projektu.

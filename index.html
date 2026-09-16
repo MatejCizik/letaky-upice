@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0f172a" />
+  <meta name="description" content="Koordinace roznosu letáků po ulicích města Úpice." />
+  <title>Letáky Úpice</title>
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.6.2/dist/maplibre-gl.css" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div id="toastHost" class="toast-host" aria-live="polite"></div>
+
+  <section id="authScreen" class="auth-screen">
+    <div class="auth-shell">
+      <div class="auth-brand">
+        <div class="brand-mark">Ú</div>
+        <div>
+          <div class="eyebrow">KOORDINACE ROZNOSU</div>
+          <h1>Letáky Úpice</h1>
+          <p>Společná mapa ulic, ve které každý vidí aktuální stav roznosu v reálném čase.</p>
+        </div>
+      </div>
+
+      <div id="setupCard" class="auth-card hidden">
+        <h2>Dokončete nastavení</h2>
+        <p>V souboru <code>config.js</code> doplňte URL projektu a publishable/anon klíč ze Supabase.</p>
+        <div class="code-hint">SUPABASE_URL<br/>SUPABASE_ANON_KEY</div>
+      </div>
+
+      <div class="auth-stack">
+        <form id="loginForm" class="auth-card">
+          <div class="auth-card-head">
+            <span class="status-dot"></span>
+            <span>Zabezpečený přístup</span>
+          </div>
+          <h2>Přihlášení</h2>
+          <label>
+            <span>Uživatelské jméno</span>
+            <input id="usernameInput" type="text" autocomplete="username" placeholder="např. admin" required maxlength="32" />
+          </label>
+          <label>
+            <span>Heslo</span>
+            <input id="passwordInput" type="password" autocomplete="current-password" placeholder="••••••••" required />
+          </label>
+          <button id="loginBtn" class="btn btn-primary btn-wide" type="submit">Přihlásit se</button>
+          <p id="loginError" class="form-error hidden"></p>
+          <p class="login-note">Účty vytváří pouze administrátor. Veřejná registrace není povolena.</p>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <div id="app" class="app hidden">
+    <header class="topbar">
+      <div class="topbar-brand">
+        <button id="mobileMenuBtn" class="icon-btn mobile-only" aria-label="Otevřít menu">☰</button>
+        <div class="brand-mark small">Ú</div>
+        <div>
+          <strong>Letáky Úpice</strong>
+          <span>Mapa roznosu</span>
+        </div>
+      </div>
+
+      <div class="topbar-progress" title="Celkový postup">
+        <div class="progress-copy">
+          <span>Hotovo</span>
+          <strong id="topProgressText">0 %</strong>
+        </div>
+        <div class="progress-track"><div id="topProgressBar" class="progress-fill"></div></div>
+      </div>
+
+      <div class="user-menu">
+        <div class="user-avatar" id="userAvatar">U</div>
+        <div class="user-copy">
+          <strong id="userName">Uživatel</strong>
+          <span id="userRole">Uživatel</span>
+        </div>
+        <button id="changePasswordBtn" class="btn btn-ghost btn-small">Heslo</button>
+        <button id="logoutBtn" class="btn btn-ghost btn-small">Odhlásit</button>
+      </div>
+    </header>
+
+    <aside id="sidebar" class="sidebar">
+      <div class="sidebar-tabs">
+        <button class="tab-btn active" data-tab="overview">Přehled</button>
+        <button class="tab-btn" data-tab="mine">Moje ulice</button>
+        <button class="tab-btn" data-tab="streets">Ulice</button>
+        <button id="adminTabBtn" class="tab-btn hidden" data-tab="admin">Admin</button>
+      </div>
+
+      <div id="overviewTab" class="tab-panel active">
+        <div class="panel-section compact">
+          <div class="section-heading">
+            <div>
+              <span class="eyebrow">STAV ROZNOSU</span>
+              <h2>Úpice</h2>
+            </div>
+            <button id="refreshBtn" class="icon-btn" title="Obnovit data">↻</button>
+          </div>
+
+          <div class="stats-grid">
+            <div class="stat-card">
+              <span class="stat-icon available"></span>
+              <div><strong id="statAvailable">0</strong><span>volných</span></div>
+            </div>
+            <div class="stat-card">
+              <span class="stat-icon active"></span>
+              <div><strong id="statInProgress">0</strong><span>roznáší se</span></div>
+            </div>
+            <div class="stat-card">
+              <span class="stat-icon done"></span>
+              <div><strong id="statDone">0</strong><span>hotovo</span></div>
+            </div>
+          </div>
+
+          <div class="big-progress">
+            <div class="big-progress-row"><span>Celkový postup</span><strong id="bigProgressText">0 / 0</strong></div>
+            <div class="progress-track large"><div id="bigProgressBar" class="progress-fill"></div></div>
+          </div>
+        </div>
+
+        <div id="selectedStreetPanel" class="panel-section grow selected-street-panel">
+          <div class="section-heading selected-heading">
+            <div>
+              <span class="eyebrow">VYBRANÁ ULICE</span>
+              <h3 id="selectedStreetName">Vyberte ulici v mapě</h3>
+            </div>
+          </div>
+          <div id="streetEmpty" class="empty-state street-empty-compact">
+            <div class="empty-icon">⌖</div>
+            <p>Najeďte na ulici a klikněte. Hlavní akce se zobrazí hned tady nahoře.</p>
+          </div>
+          <div id="streetDetail" class="street-detail street-detail-compact hidden">
+            <div class="street-action-card">
+              <div id="streetStatusBadge" class="status-badge available">Volná</div>
+              <div id="streetActions" class="action-stack action-stack-primary"></div>
+            </div>
+            <div class="detail-list detail-list-compact">
+              <div><span>Uživatel</span><strong id="detailOwner">—</strong></div>
+              <div><span>Aktualizováno</span><strong id="detailUpdated">—</strong></div>
+            </div>
+            <span id="detailStatus" class="hidden" aria-hidden="true">Volná</span>
+          </div>
+        </div>
+
+        <div class="legend">
+          <span><i class="legend-dot available"></i> Volná</span>
+          <span><i class="legend-dot active"></i> Roznáší se</span>
+          <span><i class="legend-dot done"></i> Rozneseno</span>
+        </div>
+      </div>
+
+      <div id="mineTab" class="tab-panel">
+        <div class="panel-section fill mine-panel">
+          <div class="section-heading">
+            <div><span class="eyebrow">MOJE ULICE</span><h2>Moje práce</h2></div>
+          </div>
+          <div class="mine-stats">
+            <div class="mine-stat working"><span>Roznáším</span><strong id="myInProgressCount">0</strong></div>
+            <div class="mine-stat done"><span>Hotovo</span><strong id="myDoneCount">0</strong></div>
+            <div class="mine-stat total"><span>Celkem</span><strong id="myTotalCount">0</strong></div>
+          </div>
+          <div class="mine-help">Kliknutím na ulici se přepnete rovnou na její detail a můžete změnit stav.</div>
+          <div id="myStreetList" class="street-list my-street-list"></div>
+        </div>
+      </div>
+
+      <div id="streetsTab" class="tab-panel">
+        <div class="panel-section fill">
+          <div class="section-heading">
+            <div><span class="eyebrow">VŠECHNY ULICE</span><h2>Seznam</h2></div>
+          </div>
+          <div class="search-box"><span>⌕</span><input id="streetSearch" placeholder="Hledat ulici…" /></div>
+          <div id="filterBar" class="filter-bar">
+            <button class="filter-chip active" data-filter="all">Vše</button>
+            <button class="filter-chip" data-filter="available">Volné</button>
+            <button class="filter-chip" data-filter="in_progress">Roznáší se</button>
+            <button class="filter-chip" data-filter="done">Hotové</button>
+          </div>
+          <div id="streetList" class="street-list"></div>
+        </div>
+      </div>
+
+      <div id="adminTab" class="tab-panel">
+        <div class="admin-workspace">
+          <section class="admin-hero admin-hero-v5">
+            <div class="admin-hero-copy">
+              <span class="eyebrow">ADMINISTRACE</span>
+              <h2>Přehled roznosu v Úpici</h2>
+              <p>Aktuální stav všech ulic, výkon týmu a správa uživatelských účtů na jednom místě.</p>
+              <div class="admin-updated">Aktualizováno: <strong id="adminReportGeneratedAt">—</strong></div>
+            </div>
+            <div class="admin-hero-actions">
+              <div class="admin-action-row">
+                <button id="adminExportPdfBtn" class="btn btn-primary admin-export-btn" type="button">
+                  <span class="btn-icon">⇩</span>
+                  Exportovat PDF
+                </button>
+                <button id="adminResetDistributionBtn" class="btn btn-danger admin-reset-btn" type="button">
+                  ↺ Kompletní reset
+                </button>
+              </div>
+              <span class="export-hint">Reset uvolní všechny rozpracované i hotové ulice.</span>
+            </div>
+          </section>
+
+          <section class="admin-summary-strip">
+            <article class="summary-metric neutral">
+              <div class="summary-metric-icon">∑</div>
+              <div><span>Celkem ulic</span><strong id="adminTotalStreets">0</strong></div>
+            </article>
+            <article class="summary-metric available">
+              <div class="summary-metric-icon">○</div>
+              <div><span>Volné</span><strong id="adminAvailable">0</strong></div>
+            </article>
+            <article class="summary-metric working">
+              <div class="summary-metric-icon">◐</div>
+              <div><span>Rozpracované</span><strong id="adminInProgress">0</strong></div>
+            </article>
+            <article class="summary-metric completed">
+              <div class="summary-metric-icon">✓</div>
+              <div><span>Hotové</span><strong id="adminDone">0</strong></div>
+            </article>
+            <article class="summary-metric today">
+              <div class="summary-metric-icon">☀</div>
+              <div><span>Dnes hotovo</span><strong id="adminTodayDone">0</strong></div>
+            </article>
+            <article class="summary-metric progress">
+              <div class="summary-metric-icon">%</div>
+              <div><span>Dokončeno</span><strong id="adminCompletionPct">0 %</strong></div>
+            </article>
+          </section>
+
+          <section class="admin-progress-card">
+            <div class="admin-progress-copy">
+              <div>
+                <span class="eyebrow">CELKOVÝ POSTUP</span>
+                <strong id="adminProgressText">0 / 0</strong>
+              </div>
+              <span id="adminProgressCaption">Zatím nebyla dokončena žádná ulice.</span>
+            </div>
+            <div class="progress-track admin-progress-track"><div id="adminProgressBar" class="progress-fill"></div></div>
+          </section>
+
+          <section class="admin-grid admin-grid-v5">
+            <div class="admin-card admin-card-team">
+              <div class="admin-block-head admin-block-head-v5">
+                <div>
+                  <span class="eyebrow">VÝKON TÝMU</span>
+                  <h3>Kolik kdo udělal</h3>
+                </div>
+                <span id="adminTeamCount" class="mini-status">0 uživatelů</span>
+              </div>
+              <div id="adminUserStats" class="admin-performance-list admin-performance-list-v5"></div>
+            </div>
+
+            <div class="admin-card admin-card-status">
+              <div class="admin-block-head admin-block-head-v5">
+                <div>
+                  <span class="eyebrow">AKTUÁLNĚ V TERÉNU</span>
+                  <h3>Rozpracované ulice</h3>
+                </div>
+              </div>
+              <div id="adminActiveStreetList" class="active-street-list"></div>
+            </div>
+
+            <div class="admin-card admin-card-span-full admin-daily-report-card">
+              <div class="admin-block-head admin-block-head-v5 daily-report-head">
+                <div>
+                  <span class="eyebrow">DENNÍ REPORT</span>
+                  <h3>Dnes hotovo</h3>
+                  <p id="adminDailyReportCaption" class="daily-report-caption">Přehled dokončených ulic za dnešní den.</p>
+                </div>
+                <div class="daily-report-controls">
+                  <label><span>Datum</span><input id="adminDailyDate" type="date" /></label>
+                  <button id="adminDailyTodayBtn" class="btn btn-ghost btn-small" type="button">Dnes</button>
+                  <button id="adminDailyRefreshBtn" class="btn btn-ghost btn-small" type="button">↻ Obnovit</button>
+                </div>
+              </div>
+              <div class="daily-report-summary">
+                <div><span>Dokončené ulice</span><strong id="adminDailyTotal">0</strong></div>
+                <div><span>Aktivní roznášeči</span><strong id="adminDailyPeople">0</strong></div>
+              </div>
+              <div id="adminDailyReportList" class="daily-report-list"></div>
+            </div>
+
+            <div class="admin-card admin-card-span-full admin-account-create-card">
+              <div class="admin-block-head admin-block-head-v5">
+                <div>
+                  <span class="eyebrow">NOVÝ ÚČET</span>
+                  <h3>Vytvoření uživatele</h3>
+                </div>
+                <span class="mini-status">Registraci provádí pouze administrátor</span>
+              </div>
+              <form id="adminCreateUserForm" class="admin-user-form admin-user-form-wide admin-user-form-v5">
+                <label><span>Uživatelské jméno</span><input id="adminNewUsername" type="text" placeholder="např. novak" required minlength="3" maxlength="32" autocomplete="off" /></label>
+                <label><span>Jméno</span><input id="adminNewDisplayName" type="text" placeholder="Jan Novák" required maxlength="80" autocomplete="off" /></label>
+                <label><span>Heslo</span><input id="adminNewPassword" type="password" placeholder="min. 6 znaků" required minlength="6" autocomplete="new-password" /></label>
+                <label><span>Role</span><select id="adminNewRole" aria-label="Role"><option value="user">Uživatel</option><option value="admin">Administrátor</option></select></label>
+                <button class="btn btn-primary create-user-btn" type="submit">+ Vytvořit účet</button>
+              </form>
+              <p id="adminUserMessage" class="form-error hidden"></p>
+            </div>
+
+            <div class="admin-card admin-card-users">
+              <div class="admin-block-head admin-block-head-v5">
+                <div><span class="eyebrow">SPRÁVA ÚČTŮ</span><h3>Uživatelé</h3></div>
+              </div>
+              <div id="adminUserList" class="user-admin-list user-admin-list-v5"></div>
+            </div>
+
+            <div class="admin-card admin-card-streets">
+              <div class="admin-block-head admin-block-head-v5">
+                <div><span class="eyebrow">SPRÁVA ULIC</span><h3>Stav jednotlivých ulic</h3></div>
+              </div>
+              <p class="muted">U obsazené ulice lze změnit stav nebo ji uvolnit pro ostatní.</p>
+              <div id="adminList" class="street-list admin-list admin-street-list"></div>
+            </div>
+
+            <div class="admin-card admin-card-span-full admin-log-card">
+              <div class="admin-block-head admin-block-head-v5 log-head">
+                <div><span class="eyebrow">LOG</span><h3>Historie změn</h3></div>
+                <button id="adminLogRefreshBtn" class="btn btn-ghost btn-small" type="button">↻ Obnovit</button>
+              </div>
+              <div class="log-toolbar">
+                <div class="search-box log-search"><span>⌕</span><input id="adminLogSearch" placeholder="Hledat uživatele, ulici nebo akci…" /></div>
+                <select id="adminLogFilter" class="log-filter">
+                  <option value="all">Všechny události</option>
+                  <option value="streets">Ulice</option>
+                  <option value="users">Uživatelé</option>
+                  <option value="system">Systém</option>
+                </select>
+              </div>
+              <div id="adminLogList" class="admin-log-list"></div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </aside>
+
+    <main class="map-shell">
+      <div id="map" aria-label="Mapa ulic Úpice"></div>
+      <div id="mapHoverLabel" class="map-hover-label hidden"></div>
+      <div id="mapLoading" class="map-loading">
+        <div class="spinner"></div>
+        <strong>Načítám ulice Úpice</strong>
+        <span>Interaktivní vektorová mapa</span>
+      </div>
+      <div class="map-toolbar">
+        <button id="fitMapBtn" class="map-tool" title="Zobrazit celé město">⌂</button>
+        <button id="locateBtn" class="map-tool" title="Moje poloha">◎</button>
+      </div>
+      <div class="osm-credit">Geometrie ulic © OpenStreetMap contributors</div>
+    </main>
+  </div>
+  <dialog id="userEditDialog" class="app-dialog">
+    <form id="userEditForm" method="dialog" class="dialog-card">
+      <div class="dialog-head"><div><span class="eyebrow">ÚPRAVA ÚČTU</span><h3>Uživatel</h3></div><button type="button" class="dialog-close" data-close-dialog="userEditDialog">×</button></div>
+      <input id="editUserId" type="hidden" />
+      <label><span>Přihlašovací jméno</span><input id="editUsername" required minlength="3" maxlength="32" /></label>
+      <label><span>Zobrazované jméno</span><input id="editDisplayName" required maxlength="80" /></label>
+      <div class="dialog-actions"><button type="button" class="btn btn-ghost" data-close-dialog="userEditDialog">Zrušit</button><button class="btn btn-primary" type="submit">Uložit změny</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="changePasswordDialog" class="app-dialog">
+    <form id="changePasswordForm" method="dialog" class="dialog-card">
+      <div class="dialog-head"><div><span class="eyebrow">ZABEZPEČENÍ</span><h3>Změna hesla</h3></div><button type="button" class="dialog-close" data-close-dialog="changePasswordDialog">×</button></div>
+      <label><span>Současné heslo</span><input id="currentPasswordField" type="password" required autocomplete="current-password" /></label>
+      <label><span>Nové heslo</span><input id="newPasswordField" type="password" required minlength="6" autocomplete="new-password" /></label>
+      <label><span>Nové heslo znovu</span><input id="newPasswordConfirmField" type="password" required minlength="6" autocomplete="new-password" /></label>
+      <p id="changePasswordMessage" class="form-error hidden"></p>
+      <div class="dialog-actions"><button type="button" class="btn btn-ghost" data-close-dialog="changePasswordDialog">Zrušit</button><button class="btn btn-primary" type="submit">Změnit heslo</button></div>
+    </form>
+  </dialog>
+
+  <script src="https://unpkg.com/maplibre-gl@5.6.2/dist/maplibre-gl.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.12/pdfmake.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.12/vfs_fonts.js"></script>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
